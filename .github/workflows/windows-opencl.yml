@@ -29,19 +29,19 @@ jobs:
             $text = Get-Content -Raw $file
 
             if ($text -notmatch 'weakGroupReplyMode\s*==\s*0') {
-              throw "$file: weakGroupReplyMode == 0 not found"
+              throw "${file}: weakGroupReplyMode == 0 not found"
             }
 
             if ($text -notmatch 'currentDanger\s*=\s*nowCurrent') {
-              throw "$file: currentDanger = nowCurrent not found"
+              throw "${file}: currentDanger = nowCurrent not found"
             }
 
             if ($text -notmatch 'opponentDanger\s*=\s*nowOpponent') {
-              throw "$file: opponentDanger = nowOpponent not found"
+              throw "${file}: opponentDanger = nowOpponent not found"
             }
 
             if ($text -match 'WG3CENTER|SELCHANGE') {
-              throw "$file: diagnostic WG3CENTER/SELCHANGE residue found"
+              throw "${file}: diagnostic WG3CENTER/SELCHANGE residue found"
             }
           }
 
