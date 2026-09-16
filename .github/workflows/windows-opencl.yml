@@ -1,0 +1,127 @@
+name: Build WG-NOW Windows OpenCL
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-windows-opencl:
+    runs-on: windows-latest
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout WG-NOW source
+        uses: actions/checkout@v4
+
+      - name: Verify WG-NOW production source
+        shell: pwsh
+        run: |
+          $files = @(
+            "cpp/search/searchexplorehelpers.cpp",
+            "cpp/search/searchresults.cpp"
+          )
+
+          foreach ($file in $files) {
+            $text = Get-Content -Raw $file
+
+            if ($text -notmatch 'weakGroupReplyMode\s*==\s*0') {
+              throw "$file: weakGroupReplyMode == 0 not found"
+            }
+
+            if ($text -notmatch 'currentDanger\s*=\s*nowCurrent') {
+              throw "$file: currentDanger = nowCurrent not found"
+            }
+
+            if ($text -notmatch 'opponentDanger\s*=\s*nowOpponent') {
+              throw "$file: opponentDanger = nowOpponent not found"
+            }
+
+            if ($text -match 'WG3CENTER|SELCHANGE') {
+              throw "$file: diagnostic WG3CENTER/SELCHANGE residue found"
+            }
+          }
+
+          Write-Host "WG_NOW_PRODUCTION_SOURCE_VERIFY=PASS"
+
+      - name: Setup MSVC
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Cache vcpkg
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.VCPKG_INSTALLATION_ROOT }}/installed
+            ${{ env.VCPKG_INSTALLATION_ROOT }}/packages
+          key: ${{ runner.os }}-vcpkg-wgnow-opencl-v1
+          restore-keys: |
+            ${{ runner.os }}-vcpkg-wgnow-opencl-
+
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          vcpkg install `
+            zlib:x64-windows `
+            libzip:x64-windows `
+            opencl:x64-windows
+
+      - name: Configure OpenCL
+        working-directory: cpp
+        shell: pwsh
+        run: |
+          cmake . -G "Visual Studio 17 2022" -A x64 `
+            -DUSE_BACKEND=OPENCL `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
+
+      - name: Build Release
+        working-directory: cpp
+        shell: pwsh
+        run: |
+          cmake --build . --config Release -j 4
+
+      - name: Copy runtime DLLs
+        working-directory: cpp
+        shell: pwsh
+        run: |
+          Copy-Item `
+            "$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows/bin/*.dll" `
+            -Destination "Release/"
+
+      - name: Verify executable
+        working-directory: cpp
+        shell: pwsh
+        run: |
+          .\Release\katago.exe version
+          .\Release\katago.exe runtests
+
+      - name: Add WG-NOW build info
+        shell: pwsh
+        run: |
+          @"
+          KataGo WG-NOW Production
+          ========================
+          Backend: OpenCL
+          Platform: Windows x64
+
+          Production search mode:
+            weakGroupReplyMode = 0
+            currentDanger      = nowCurrent
+            opponentDanger     = nowOpponent
+
+          weakGroupUtilityLambda is configured at runtime.
+
+          Git commit:
+          $env:GITHUB_SHA
+          "@ | Out-File `
+            -Encoding utf8 `
+            cpp/Release/WG-NOW-README.txt
+
+      - name: Upload Windows OpenCL package
+        uses: actions/upload-artifact@v4
+        with:
+          name: KataGo-WG-NOW-Windows-OpenCL
+          path: cpp/Release/
+          if-no-files-found: error
